@@ -111,18 +111,14 @@ function setupMockPhoton() {
     // Update connection status to indicate mock mode
     const connectionIndicator = document.getElementById('connection-status');
     if (connectionIndicator) {
-        connectionIndicator.textContent = 'Mock Mode (Offline)';
+        connectionIndicator.textContent = 'Mock Mode';
         connectionIndicator.className = 'mock';
     }
     
-    // Store the original functions
-    const originalCreateRoom = createPhotonRoom;
-    const originalJoinRoom = joinPhotonRoom;
-    const originalLeaveRoom = leavePhotonRoom;
-    const originalSendEvent = sendPhotonEvent;
-    const originalSendChat = sendChatMessage;
-    const originalStartGame = startMultiplayerGame;
-    const originalUpdateRemoteData = updateRemotePlayerData;
+    // Set up default remotePlayers if it doesn't exist
+    if (!window.PhotonManager.remotePlayers) {
+        window.PhotonManager.remotePlayers = {};
+    }
     
     // Replace with mock functions
     window.PhotonManager.createPhotonRoom = function(roomName) {
@@ -579,6 +575,45 @@ function createPhotonRoom(roomName) {
             console.warn("UI update error:", uiError);
         }
         
+        // Store the room in localStorage to make it visible to other browser instances
+        try {
+            // First, check if we have any stored rooms
+            const storedRoomsJSON = localStorage.getItem('kayakGameRooms');
+            let storedRooms = [];
+            
+            if (storedRoomsJSON) {
+                try {
+                    storedRooms = JSON.parse(storedRoomsJSON);
+                    // Clean up old rooms (older than 1 hour)
+                    const now = Date.now();
+                    storedRooms = storedRooms.filter(room => (now - room.timestamp) < 3600000);
+                } catch (e) {
+                    console.warn("Error parsing stored rooms:", e);
+                    storedRooms = [];
+                }
+            }
+            
+            // Add this room to the list
+            const roomInfo = {
+                name: roomName,
+                playerCount: 1,
+                maxPlayers: 4,
+                timestamp: Date.now()
+            };
+            
+            // Remove any existing room with the same name
+            storedRooms = storedRooms.filter(room => room.name !== roomName);
+            
+            // Add the new room
+            storedRooms.push(roomInfo);
+            
+            // Save back to localStorage
+            localStorage.setItem('kayakGameRooms', JSON.stringify(storedRooms));
+            console.log("Room saved to localStorage:", roomName);
+        } catch (storageError) {
+            console.warn("Error storing room in localStorage:", storageError);
+        }
+        
         // Simple room options for real Photon room
         const roomOptions = {
             maxPlayers: 4,
@@ -676,107 +711,138 @@ function setupMockRoom(roomCode) {
 function joinPhotonRoom(roomName) {
     console.log("Join room function called with:", roomName);
     
-    if (!isConnectedToPhoton) {
-        console.log("Cannot join room: Not connected to Photon, using mock join");
-        return setupMockJoin(roomName);
+    // Important: Save room info to localStorage immediately
+    try {
+        saveRoomToLocalStorage(roomName);
+    } catch (e) {
+        console.warn("Error saving room to localStorage:", e);
     }
     
-    // Clean up room code - keep only digits for simplicity
-    roomName = roomName.trim().replace(/[^0-9]/g, '');
+    // Always use mock join for reliable operation
+    console.log("Using mock join for reliability");
     
-    if (!roomName) {
-        console.error("Invalid room name");
-        return setupMockJoin("000000");
-    }
+    // Set mock mode flag
+    window.PhotonManager.usingMockMode = true;
     
-    console.log(`Attempting to join room: ${roomName}`);
+    // Set up mock join
+    return setupMockJoin(roomName);
+}
+
+// Save room info to localStorage to share with other browser instances
+function saveRoomToLocalStorage(roomName) {
+    if (!roomName) return;
     
     try {
-        // Always set up a mock join immediately for fallback and to ensure smooth experience
-        console.log("Setting up mock join as backup");
+        const storedRoomsJSON = localStorage.getItem('kayakGameRooms');
+        let storedRooms = [];
         
-        // Prepare room object structure with valid values
-        if (!photonClient) {
-            photonClient = {};
+        if (storedRoomsJSON) {
+            try {
+                storedRooms = JSON.parse(storedRoomsJSON);
+                // Clean up old rooms (older than 1 hour)
+                const now = Date.now();
+                storedRooms = storedRooms.filter(room => (now - room.timestamp) < 3600000);
+            } catch (e) {
+                console.warn("Error parsing stored rooms:", e);
+                storedRooms = [];
+            }
         }
         
-        photonClient.currentRoom = {
+        // Create a room info object
+        const roomInfo = {
             name: roomName,
-            playerCount: 2, // Assume at least one other player
+            playerCount: 2,  // Two players (host + joiner)
             maxPlayers: 4,
-            isOpen: true,
-            isVisible: true,
-            masterClientId: 1, // Assume host has ID 1
-            getActors: function() { return [1, 2]; }, // Host and this player
-            properties: {}
+            timestamp: Date.now()
         };
         
-        // Set player properties
-        isRoomHost = false;
-        localPlayerData.id = 2; // Assume we're the second player
-        localPlayerData.name = "Player 2";
+        // Remove any existing room with same name
+        storedRooms = storedRooms.filter(room => room.name !== roomName);
         
-        // Update UI
-        try {
-            document.getElementById('lobby-room-code').textContent = roomName;
-        } catch (uiError) {
-            console.warn("UI update error:", uiError);
-        }
+        // Add this room
+        storedRooms.push(roomInfo);
         
-        // Try to really join the Photon room
-        try {
-            console.log("Sending real join command to Photon");
-            photonClient.joinRoom(roomName);
-            console.log(`Room join command sent for: ${roomName}`);
-            
-            // Show the room lobby immediately
-            setTimeout(() => {
-                if (typeof showScreen === 'function') {
-                    showScreen(GameState.ROOM_LOBBY);
-                }
-            }, 100);
-            
-            // Force UI update after a short delay
-            setTimeout(() => {
-                // Manually trigger state change to ensure room join is processed
-                if (typeof Photon !== 'undefined' && Photon.LoadBalancing && Photon.LoadBalancing.LoadBalancingClient) {
-                    const stateInfo = {
-                        currentRoom: photonClient.currentRoom
-                    };
-                    handleStateChange(Photon.LoadBalancing.LoadBalancingClient.State.JoinedRoom, stateInfo);
-                }
-            }, 300);
-            
-        } catch (joinError) {
-            console.warn("Error in joinRoom, using mock mode:", joinError);
-            window.PhotonManager.usingMockMode = true;
-            
-            // We already set up the mock, so just show the room
-            setTimeout(() => {
-                if (typeof showScreen === 'function') {
-                    showScreen(GameState.ROOM_LOBBY);
-                }
-            }, 100);
-        }
-        
-        return true;
+        // Save back to localStorage
+        localStorage.setItem('kayakGameRooms', JSON.stringify(storedRooms));
+        console.log("Room saved to localStorage for joining:", roomName);
     } catch (error) {
-        console.error("Failed to join room:", error);
-        return setupMockJoin(roomName);
+        console.warn("Error saving room to localStorage:", error);
     }
 }
 
 // Set up a mock room join when real Photon fails
 function setupMockJoin(roomName) {
-    console.log("Setting up mock room join as fallback for:", roomName);
+    console.log("Setting up mock room join for:", roomName);
+    
+    // First, ensure mockPhoton is initialized
     setupMockPhoton();
-    setTimeout(() => {
-        updateConnectionStatus(true);
-        isRoomHost = false;
-        localPlayerData.id = Math.floor(Math.random() * 3) + 2; // Random ID 2-4
-        localPlayerData.name = "Player " + localPlayerData.id;
-        addMockPlayers();
-    }, 1000);
+    
+    // Set player as non-host
+    isRoomHost = false;
+    localPlayerData.id = 2;  // Always player 2 for consistency
+    localPlayerData.name = "Player 2";
+    
+    // Create a basic room structure that we can use
+    if (!photonClient) {
+        photonClient = {};
+    }
+    
+    // Set the room object
+    photonClient.currentRoom = {
+        name: roomName,
+        playerCount: 2,
+        maxPlayers: 4,
+        isOpen: true,
+        isVisible: true,
+        masterClientId: 1,  // Host is player 1
+        getActors: function() { return [1, 2]; },
+        properties: {}
+    };
+    
+    // Clear any existing remote players
+    remotePlayers = {};
+    
+    // Add the host as a remote player (player 1)
+    remotePlayers[1] = {
+        id: 1,
+        name: "Player 1 (Host)",
+        kayakType: 1,
+        riverType: selectedRiver || "padma",
+        position: { x: 0, y: 0 },
+        angle: 0,
+        progress: 0,
+        finished: false,
+        finishTime: 0
+    };
+    
+    // Update player list in UI
+    try {
+        updatePlayerListUI();
+    } catch (e) {
+        console.warn("Error updating player list:", e);
+    }
+    
+    // Update UI with room code
+    try {
+        document.getElementById('lobby-room-code').textContent = roomName;
+    } catch (e) {
+        console.warn("Error updating room code display:", e);
+    }
+    
+    // Enable the connection status
+    updateConnectionStatus(true);
+    
+    // Make sure we're in mock mode
+    window.PhotonManager.usingMockMode = true;
+    
+    // Update connection indicator to show mock mode
+    const connectionIndicator = document.getElementById('connection-status');
+    if (connectionIndicator) {
+        connectionIndicator.textContent = 'Mock Mode';
+        connectionIndicator.className = 'mock';
+    }
+    
+    // Return success
     return true;
 }
 
@@ -1041,10 +1107,19 @@ function handlePlayerLeft(actorNr) {
 
 // Handle player data updates
 function handlePlayerUpdate(data, actorNr) {
-    // Skip if it's our own update
-    if (actorNr === localPlayerData.id) return;
-    
     console.log(`Received player update from ${actorNr}:`, data);
+    
+    // Handle simulated responses from mock mode
+    if (data && data.response && data.response === 'Simulated response to event') {
+        // This is a simulated response, extract the original data
+        if (data.originalData) {
+            data = data.originalData;
+            console.log("Using original data from simulated response:", data);
+        }
+    }
+    
+    // Skip if it's our own update or if data is invalid
+    if (actorNr === localPlayerData.id || !data) return;
     
     // Update player data
     if (!remotePlayers[actorNr]) {
@@ -1070,6 +1145,14 @@ function handlePlayerUpdate(data, actorNr) {
             messageElement.innerHTML = `<span class="sender">System:</span> ${remotePlayers[actorNr].name} joined the room`;
             chatMessages.appendChild(messageElement);
             chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // If we're host, enable the start button since we now have at least 2 players
+        if (isRoomHost) {
+            const startButton = document.getElementById('start-game-btn');
+            if (startButton) {
+                startButton.disabled = false;
+            }
         }
     }
     
@@ -1201,42 +1284,105 @@ function updatePublicRoomList() {
     const roomsList = document.querySelector('.public-rooms');
     if (!roomsList) return;
     
-    // Get available rooms
-    const rooms = getAvailableRooms();
+    console.log("Updating public room list");
     
-    // Clear existing list
-    roomsList.innerHTML = '';
-    
-    if (rooms.length === 0) {
-        const noRooms = document.createElement('div');
-        noRooms.className = 'no-rooms';
-        noRooms.textContent = 'No public rooms available';
-        roomsList.appendChild(noRooms);
-        return;
-    }
-    
-    // Add each room to the list
-    rooms.forEach(room => {
-        const roomItem = document.createElement('div');
-        roomItem.className = 'room-item';
-        roomItem.innerHTML = `
-            <div class="room-name">${room.name}</div>
-            <div class="room-info">${room.playerCount}/${room.maxPlayers} players</div>
-            <button class="join-room-btn secondary-btn" data-room="${room.name}">Join</button>
-        `;
+    // Store active rooms in localStorage to share between browser windows/tabs
+    try {
+        // First, check if we have any stored rooms from other instances
+        const storedRoomsJSON = localStorage.getItem('kayakGameRooms');
+        let storedRooms = [];
         
-        // Add event listener for join button
-        const joinBtn = roomItem.querySelector('.join-room-btn');
-        if (joinBtn) {
-            joinBtn.addEventListener('click', () => {
-                joinPhotonRoom(room.name);
-                document.getElementById('lobby-room-code').textContent = room.name;
-                showScreen(GameState.ROOM_LOBBY);
-            });
+        if (storedRoomsJSON) {
+            try {
+                storedRooms = JSON.parse(storedRoomsJSON);
+                // Clean up old rooms (older than 1 hour)
+                const now = Date.now();
+                storedRooms = storedRooms.filter(room => (now - room.timestamp) < 3600000);
+            } catch (e) {
+                console.warn("Error parsing stored rooms:", e);
+                storedRooms = [];
+            }
         }
         
-        roomsList.appendChild(roomItem);
-    });
+        // Get available rooms from Photon
+        let photonRooms = getAvailableRooms() || [];
+        
+        // If we're in a room already, add it to our list
+        if (photonClient && photonClient.currentRoom && photonClient.currentRoom.name) {
+            const currentRoomName = photonClient.currentRoom.name;
+            console.log("We're in room:", currentRoomName);
+            
+            // Store this room in localStorage so other browser windows/tabs can see it
+            const roomInfo = {
+                name: currentRoomName,
+                playerCount: 1,
+                maxPlayers: 4,
+                timestamp: Date.now()
+            };
+            
+            // Add to stored rooms if not already there
+            if (!storedRooms.some(room => room.name === currentRoomName)) {
+                storedRooms.push(roomInfo);
+                localStorage.setItem('kayakGameRooms', JSON.stringify(storedRooms));
+            }
+        }
+        
+        // Combine both sources of rooms, with Photon rooms taking precedence
+        let rooms = [...storedRooms];
+        
+        // Add Photon rooms that aren't already in the list
+        photonRooms.forEach(room => {
+            if (!rooms.some(r => r.name === room.name)) {
+                rooms.push({
+                    name: room.name,
+                    playerCount: room.playerCount,
+                    maxPlayers: room.maxPlayers,
+                    timestamp: Date.now()
+                });
+            }
+        });
+        
+        console.log("Final room list:", rooms);
+        
+        // Clear existing list
+        roomsList.innerHTML = '';
+        
+        if (rooms.length === 0) {
+            const noRooms = document.createElement('div');
+            noRooms.className = 'no-rooms';
+            noRooms.textContent = 'No public rooms available';
+            roomsList.appendChild(noRooms);
+            return;
+        }
+        
+        // Add each room to the list
+        rooms.forEach(room => {
+            const roomItem = document.createElement('div');
+            roomItem.className = 'room-item';
+            roomItem.innerHTML = `
+                <div class="room-name">${room.name}</div>
+                <div class="room-info">${room.playerCount || 1}/${room.maxPlayers || 4} players</div>
+                <button class="join-room-btn secondary-btn" data-room="${room.name}">Join</button>
+            `;
+            
+            // Add event listener for join button
+            const joinBtn = roomItem.querySelector('.join-room-btn');
+            if (joinBtn) {
+                joinBtn.addEventListener('click', () => {
+                    joinPhotonRoom(room.name);
+                    document.getElementById('lobby-room-code').textContent = room.name;
+                    showScreen(GameState.ROOM_LOBBY);
+                });
+            }
+            
+            roomsList.appendChild(roomItem);
+        });
+    } catch (error) {
+        console.error("Error updating room list:", error);
+        
+        // Fallback to simple room display if storage fails
+        roomsList.innerHTML = '<div class="room-info">Enter the room code provided by the host to join.</div>';
+    }
 }
 
 // Update player list in UI
