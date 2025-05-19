@@ -180,8 +180,21 @@
                 setTimeout(() => {
                     _isInRoom = true;
                     
+                    // Make sure current room is available publicly before triggering the event
+                    this.currentRoom = _currentRoom;
+                    
                     if (this.onStateChange) {
-                        this.onStateChange(states.JoinedRoom);
+                        // Pass a simplified room object directly instead of relying on this.currentRoom
+                        const stateInfo = {
+                            playerCount: 1,
+                            currentRoom: {
+                                name: roomName,
+                                playerCount: 1,
+                                masterClientId: 1,
+                                getActors: function() { return [1]; }
+                            }
+                        };
+                        this.onStateChange(states.JoinedRoom, stateInfo);
                     }
                 }, 300);
                 
@@ -251,8 +264,21 @@
                 setTimeout(() => {
                     _isInRoom = true;
                     
+                    // Make sure current room is available publicly before triggering the event
+                    this.currentRoom = _currentRoom;
+                    
                     if (this.onStateChange) {
-                        this.onStateChange(states.JoinedRoom);
+                        // Pass a simplified room object directly instead of relying on this.currentRoom
+                        const stateInfo = {
+                            playerCount: 1,
+                            currentRoom: {
+                                name: roomName,
+                                playerCount: 1,
+                                masterClientId: 1,
+                                getActors: function() { return [1]; }
+                            }
+                        };
+                        this.onStateChange(states.JoinedRoom, stateInfo);
                     }
                     
                     // Simulate other players joining
