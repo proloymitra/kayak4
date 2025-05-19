@@ -305,6 +305,23 @@
     <script src="js/photon-backup.js"></script>
     <script src="js/main.js"></script>
     
+    <!-- Suppress "message port closed" errors -->
+    <script>
+        // Global error handler to suppress specific runtime errors
+        window.addEventListener('error', function(event) {
+            if (event && event.message && (
+                event.message.includes('message port closed') || 
+                event.message.includes('The message port closed') ||
+                event.message.includes('Unchecked runtime.lastError')
+            )) {
+                console.log('Suppressing Chrome extension error:', event.message);
+                event.stopPropagation();
+                event.preventDefault();
+                return true;
+            }
+        }, true);
+    </script>
+    
     <!-- Add Photon detection script -->
     <script>
         window.addEventListener('load', function() {

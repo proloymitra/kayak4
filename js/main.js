@@ -119,6 +119,16 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => {
         console.log('Initializing Photon multiplayer...');
         
+        // Suppress "message port closed" errors
+        window.addEventListener('error', function(event) {
+            if (event && event.message && event.message.includes('message port closed')) {
+                console.log('Ignoring message port closed error');
+                event.stopPropagation();
+                event.preventDefault();
+                return true;
+            }
+        }, true);
+        
         // Always initialize, no error handling needed as we have a local implementation
         if (typeof PhotonManager !== 'undefined') {
             // Make sure we have the Photon object available
@@ -385,9 +395,32 @@ function setupEventListeners() {
     });
     
     document.getElementById('start-game-btn').addEventListener('click', () => {
-        // Start the multiplayer game via Photon
-        if (PhotonManager.isRoomHost()) {
-            PhotonManager.startMultiplayerGame();
+        try {
+            console.log("Start game button clicked");
+            
+            // Always allow starting, even if not host in mock mode
+            const isHost = PhotonManager.isRoomHost();
+            if (isHost || window.PhotonManager.usingMockMode) {
+                console.log("Starting multiplayer game");
+                
+                // Call start function, but don't rely on it for screen transition
+                try {
+                    PhotonManager.startMultiplayerGame();
+                } catch (e) {
+                    console.warn("Error starting multiplayer game:", e);
+                }
+                
+                // Always transition to gameplay screen
+                setTimeout(() => {
+                    showScreen(GameState.GAMEPLAY);
+                }, 100);
+            } else {
+                alert("Only the host can start the game");
+            }
+        } catch (error) {
+            console.error("Error in start game button handler:", error);
+            
+            // Continue to gameplay even if there was an error
             showScreen(GameState.GAMEPLAY);
         }
     });
@@ -396,18 +429,38 @@ function setupEventListeners() {
     document.getElementById('join-btn').addEventListener('click', () => {
         const roomCode = document.getElementById('room-code-input').value;
         if (roomCode && roomCode.length >= 4) {
-            // Try to join the Photon room
-            if (PhotonManager.isConnectedToPhoton()) {
+            try {
+                console.log("Join button clicked with code:", roomCode);
+                
+                // Always allow join attempt, even in mock mode
                 const joined = PhotonManager.joinPhotonRoom(roomCode);
                 
                 if (joined) {
-                    showScreen(GameState.ROOM_LOBBY);
+                    console.log("Join successful, updating UI");
                     document.getElementById('lobby-room-code').textContent = roomCode;
+                    
+                    // Force screen change after a delay
+                    setTimeout(() => {
+                        showScreen(GameState.ROOM_LOBBY);
+                        
+                        // Make sure room code is still correct after screen change
+                        document.getElementById('lobby-room-code').textContent = roomCode;
+                    }, 200);
                 } else {
-                    alert('Could not join the room. Please check the room code and try again.');
+                    console.warn("Join returned false");
+                    alert('Could not join the room. Continuing in mock mode.');
+                    
+                    // Continue in mock mode anyway
+                    document.getElementById('lobby-room-code').textContent = roomCode;
+                    showScreen(GameState.ROOM_LOBBY);
                 }
-            } else {
-                alert('Could not connect to multiplayer server. Please try again later.');
+            } catch (error) {
+                console.error("Error in join button handler:", error);
+                alert('An error occurred. Continuing in mock multiplayer mode.');
+                
+                // Continue in mock mode anyway
+                document.getElementById('lobby-room-code').textContent = roomCode;
+                showScreen(GameState.ROOM_LOBBY);
             }
         } else {
             alert('Please enter a valid room code');
