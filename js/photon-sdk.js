@@ -151,18 +151,21 @@
                 _currentRoom = {
                     name: roomName,
                     playerCount: 1,
-                    maxPlayers: options.maxPlayers || 4,
-                    isOpen: options.isOpen !== false,
-                    isVisible: options.isVisible !== false,
+                    maxPlayers: options && options.maxPlayers || 4,
+                    isOpen: options && options.isOpen !== false,
+                    isVisible: options && options.isVisible !== false,
                     masterClientId: 1,
                     actors: [1],
-                    properties: options.customProperties || {},
+                    properties: options && options.customProperties || {},
                     
                     // Methods for the room
                     getActors: function() {
                         return this.actors;
                     }
                 };
+                
+                // Make it available publicly
+                this.currentRoom = _currentRoom;
                 
                 // Create an actor for the local player
                 _myActor = {
@@ -225,6 +228,9 @@
                         return this.actors;
                     }
                 };
+                
+                // Make it available publicly
+                this.currentRoom = _currentRoom;
                 
                 // Random actor ID between 2-4
                 const actorId = Math.floor(2 + Math.random() * 3);
